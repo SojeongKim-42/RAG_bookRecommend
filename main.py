@@ -76,23 +76,22 @@ def run_interactive_mode(vectorstore_manager: VectorStoreManager) -> None:
 def main():
     """Main function."""
     # Parse command line arguments
-    parser = argparse.ArgumentParser(
-        description="RAG Book Recommendation System"
-    )
+    parser = argparse.ArgumentParser(description="RAG Book Recommendation System")
     parser.add_argument(
         "--query",
         type=str,
-        help="Single query to process (if not provided, runs in interactive mode)"
+        help="Single query to process (if not provided, runs in interactive mode)",
     )
     parser.add_argument(
-        "--rebuild",
-        action="store_true",
-        help="Force rebuild of vector store"
+        "--rebuild", action="store_true", help="Force rebuild of vector store"
     )
     parser.add_argument(
-        "--stats-only",
+        "--stats-only", action="store_true", help="Only show statistics and exit"
+    )
+    parser.add_argument(
+        "--test_vector_store",
         action="store_true",
-        help="Only show statistics and exit"
+        help="Test vector store functionality",
     )
 
     args = parser.parse_args()
@@ -101,6 +100,7 @@ def main():
         # Handle rebuild flag
         if args.rebuild:
             import shutil
+
             if Config.VECTOR_STORE_DIR.exists():
                 print(f"Removing existing vector store at {Config.VECTOR_STORE_DIR}")
                 shutil.rmtree(Config.VECTOR_STORE_DIR)
@@ -115,6 +115,8 @@ def main():
         # Run appropriate mode
         if args.query:
             run_single_query(args.query, vectorstore_manager)
+        elif args.test_vector_store:
+            vectorstore_manager.test_vector_store()
         else:
             run_interactive_mode(vectorstore_manager)
 

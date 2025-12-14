@@ -28,7 +28,7 @@ class Config:
     LANGSMITH_API_KEY: Optional[str] = os.getenv("LANGSMITH_API_KEY")
 
     # Model settings
-    EMBEDDING_MODEL_NAME = "distiluse-base-multilingual-cased-v1"
+    EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
     # Try gemini-1.5-flash if gemini-2.0-flash-lite quota is exceeded
     CHAT_MODEL_NAME = "google_genai:gemini-2.0-flash"
 
@@ -38,7 +38,7 @@ class Config:
 
     # Retrieval settings
     DEFAULT_K = 2  # Number of documents to retrieve
-    MAX_K = 4     # Maximum number of documents for deduplication
+    MAX_K = 4  # Maximum number of documents for deduplication
 
     # CSV loader settings
     CSV_ENCODING = "utf-8"

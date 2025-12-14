@@ -17,11 +17,7 @@ from config import Config
 class VectorStoreManager:
     """Manages FAISS vector store operations including creation, saving, and loading."""
 
-    def __init__(
-        self,
-        model_name: str = None,
-        store_path: str = None
-    ):
+    def __init__(self, model_name: str = None, store_path: str = None):
         """
         Initialize VectorStoreManager.
 
@@ -63,17 +59,12 @@ class VectorStoreManager:
             model_kwargs = self._get_device_config()
 
             self.embeddings = HuggingFaceEmbeddings(
-                model_name=self.model_name,
-                model_kwargs=model_kwargs
+                model_name=self.model_name, model_kwargs=model_kwargs
             )
 
         return self.embeddings
 
-    def create_vectorstore(
-        self,
-        documents: List[Document],
-        save: bool = True
-    ) -> FAISS:
+    def create_vectorstore(self, documents: List[Document], save: bool = True) -> FAISS:
         """
         Create a new FAISS vector store from documents.
 
@@ -90,8 +81,7 @@ class VectorStoreManager:
             self.initialize_embeddings()
 
         self.vectorstore = FAISS.from_documents(
-            documents=documents,
-            embedding=self.embeddings
+            documents=documents, embedding=self.embeddings
         )
 
         if save:
@@ -140,19 +130,13 @@ class VectorStoreManager:
             self.initialize_embeddings()
 
         self.vectorstore = FAISS.load_local(
-            load_path,
-            self.embeddings,
-            allow_dangerous_deserialization=True
+            load_path, self.embeddings, allow_dangerous_deserialization=True
         )
 
         print("Vector store loaded successfully")
         return self.vectorstore
 
-    def similarity_search(
-        self,
-        query: str,
-        k: int = None
-    ) -> List[Document]:
+    def similarity_search(self, query: str, k: int = None) -> List[Document]:
         """
         Search for similar documents.
 
@@ -188,10 +172,7 @@ class VectorStoreManager:
         check_path = path or self.store_path
         return os.path.exists(check_path)
 
-    def get_or_create_vectorstore(
-        self,
-        documents: List[Document] = None
-    ) -> FAISS:
+    def get_or_create_vectorstore(self, documents: List[Document] = None) -> FAISS:
         """
         Load existing vector store or create a new one if it doesn't exist.
 
@@ -212,3 +193,17 @@ class VectorStoreManager:
                     "Vector store doesn't exist and no documents provided for creation"
                 )
             return self.create_vectorstore(documents, save=True)
+
+    def test_vector_store(self) -> None:
+        """
+        Test vector store functionality with a sample query.
+        """
+        sample_query = input("Enter a sample query to test the vector store: ")
+        print(f"Testing vector store with query: '{sample_query}'")
+
+        results = self.similarity_search(sample_query, k=Config.DEFAULT_K)
+        if results:
+            print("Test successful. Retrieved document:")
+            print(results[0].page_content)
+        else:
+            print("Test failed. No documents retrieved.")
