@@ -11,6 +11,19 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
+# Try to load Streamlit secrets if available (for deployment)
+try:
+    import streamlit as st
+
+    GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY"))
+    LANGSMITH_API_KEY = st.secrets.get(
+        "LANGSMITH_API_KEY", os.getenv("LANGSMITH_API_KEY")
+    )
+except (ImportError, FileNotFoundError, AttributeError):
+    # Fallback to environment variables if streamlit not available or secrets not configured
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    LANGSMITH_API_KEY = os.getenv("LANGSMITH_API_KEY")
+
 
 class Config:
     """Configuration class for managing system settings."""
@@ -23,9 +36,9 @@ class Config:
     # Data files
     DATA_FILE = DATA_DIR / "combined_preprocessed.csv"
 
-    # API Keys (loaded from environment variables)
-    GOOGLE_API_KEY: Optional[str] = os.getenv("GOOGLE_API_KEY")
-    LANGSMITH_API_KEY: Optional[str] = os.getenv("LANGSMITH_API_KEY")
+    # API Keys (loaded from environment variables or Streamlit secrets)
+    GOOGLE_API_KEY: Optional[str] = GOOGLE_API_KEY
+    LANGSMITH_API_KEY: Optional[str] = LANGSMITH_API_KEY
 
     # Model settings
     EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
