@@ -40,10 +40,27 @@ class Config:
     DEFAULT_K = 2  # Number of documents to retrieve
     MAX_K = 4  # Maximum number of documents for deduplication
 
+    # MMR settings
+    USE_MMR = True  # Use Maximal Marginal Relevance for diversity
+    MMR_FETCH_K = 20  # Number of documents to fetch before MMR filtering
+    MMR_LAMBDA = 0.8  # 0=max diversity, 1=max relevance
+
+    # Reranking settings
+    USE_RERANKING = True  # Use bestseller rank based reranking
+    RANK_ALPHA = 0.8  # Weight for similarity score (0-1)
+    RANK_BETA = 0.2  # Weight for rank score (0-1)
+    RANK_COLUMN = "순번/순위"  # Column name for bestseller rank
+
+    # Adaptive Top-k settings
+    USE_ADAPTIVE_K = True  # Use adaptive top-k strategy
+    MIN_K = 2  # Minimum number of documents
+    MAX_ADAPTIVE_K = 10  # Maximum number of documents for adaptive retrieval
+    SIMILARITY_THRESHOLD = 0.7  # Threshold for adaptive k
+
     # CSV loader settings
     CSV_ENCODING = "utf-8"
     CSV_DELIMITER = ","
-    CONTENT_COLUMNS = ["구분", "상품명", "책소개", "목차"]
+    CONTENT_COLUMNS = ["순번/순위", "구분", "상품명", "책소개", "목차"]
 
     @classmethod
     def setup_environment(cls) -> None:

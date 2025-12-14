@@ -93,6 +93,11 @@ def main():
         action="store_true",
         help="Test vector store functionality",
     )
+    parser.add_argument(
+        "--disable-advanced",
+        action="store_true",
+        help="Disable advanced search features (MMR, reranking, adaptive-k)",
+    )
 
     args = parser.parse_args()
 
@@ -116,7 +121,7 @@ def main():
         if args.query:
             run_single_query(args.query, vectorstore_manager)
         elif args.test_vector_store:
-            vectorstore_manager.test_vector_store()
+            vectorstore_manager.test_vector_store(args.disable_advanced)
         else:
             run_interactive_mode(vectorstore_manager)
 

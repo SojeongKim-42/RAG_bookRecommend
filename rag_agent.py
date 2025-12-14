@@ -1,5 +1,6 @@
 """
-RAG Agent module for handling book recommendation queries with context retrieval.
+RAG Agent module for handling book recommendation queries with advanced retrieval.
+Supports MMR, metadata filtering, reranking, and adaptive top-k strategies.
 """
 
 from typing import List, Dict, Any, Optional
@@ -12,13 +13,22 @@ from vector_store import VectorStoreManager
 
 
 class RAGAgent:
-    """RAG-based agent for book recommendations with vector store integration."""
+    """
+    RAG-based agent for book recommendations with advanced retrieval features.
+
+    Features:
+    - MMR search for diversity
+    - Metadata filtering
+    - Bestseller rank-based reranking
+    - Adaptive top-k strategy
+    """
 
     def __init__(
         self,
         vectorstore_manager: VectorStoreManager,
         model_name: str = None,
-        k: int = None
+        k: int = None,
+        use_advanced_search: bool = True,
     ):
         """
         Initialize RAG Agent.
@@ -27,10 +37,12 @@ class RAGAgent:
             vectorstore_manager: VectorStoreManager instance
             model_name: Name of the chat model
             k: Number of documents to retrieve for context
+            use_advanced_search: Whether to use advanced search features
         """
         self.vectorstore_manager = vectorstore_manager
         self.model_name = model_name or Config.CHAT_MODEL_NAME
         self.k = k or Config.DEFAULT_K
+        self.use_advanced_search = use_advanced_search
         self.agent = None
         self.model = None
 
@@ -56,12 +68,14 @@ class RAGAgent:
     def _create_prompt_middleware(self):
         """
         Create dynamic prompt middleware that injects retrieved context.
+        Uses advanced search if enabled.
 
         Returns:
             Dynamic prompt function
         """
         vectorstore_manager = self.vectorstore_manager
         k = self.k
+        use_advanced_search = self.use_advanced_search
 
         @dynamic_prompt
         def prompt_with_context(request: ModelRequest) -> str:
@@ -70,16 +84,26 @@ class RAGAgent:
                 # Get the last user message
                 last_query = request.state["messages"][-1].text
 
-                # Retrieve relevant documents
-                retrieved_docs = vectorstore_manager.similarity_search(
-                    last_query,
-                    k=k
-                )
+                # Retrieve relevant documents using advanced search or standard search
+                if use_advanced_search:
+                    print(
+                        "Using advanced search with MMR, adaptive k, and reranking..."
+                    )
+                    retrieved_docs = vectorstore_manager.advanced_search(
+                        last_query,
+                        use_mmr=Config.USE_MMR,
+                        use_reranking=Config.USE_RERANKING,
+                        use_adaptive_k=Config.USE_ADAPTIVE_K,
+                        k=k,
+                    )
+                else:
+                    print(f"Using standard similarity search...")
+                    retrieved_docs = vectorstore_manager.similarity_search(
+                        last_query, k=k
+                    )
 
                 # Combine document contents
-                docs_content = "\n\n".join(
-                    doc.page_content for doc in retrieved_docs
-                )
+                docs_content = "\n\n".join(doc.page_content for doc in retrieved_docs)
 
                 # Create system message with context
                 system_message = (
@@ -87,7 +111,8 @@ class RAGAgent:
                     "Use the following context from our book database to provide accurate recommendations:\n\n"
                     f"{docs_content}\n\n"
                     "Based on this context, provide relevant book recommendations. "
-                    "If you recommend a book, mention its category (구분) and title (상품명)."
+                    "If you recommend a book, mention its category (구분) and title (상품명). "
+                    "Consider the bestseller rankings and diverse options in your recommendations."
                 )
 
                 return system_message
@@ -122,11 +147,7 @@ class RAGAgent:
 
         return self.agent
 
-    def query(
-        self,
-        question: str,
-        verbose: bool = False
-    ) -> Dict[str, Any]:
+    def query(self, question: str, verbose: bool = False) -> Dict[str, Any]:
         """
         Query the agent with a question.
 
@@ -144,9 +165,9 @@ class RAGAgent:
             print(f"\nProcessing query: {question}\n")
 
         try:
-            response = self.agent.invoke({
-                "messages": [{"role": "user", "content": question}]
-            })
+            response = self.agent.invoke(
+                {"messages": [{"role": "user", "content": question}]}
+            )
             return response
 
         except Exception as e:
@@ -180,7 +201,7 @@ class RAGAgent:
             try:
                 query = input("You: ").strip()
 
-                if query.lower() in ['quit', 'exit', 'q']:
+                if query.lower() in ["quit", "exit", "q"]:
                     print("Goodbye!")
                     break
 

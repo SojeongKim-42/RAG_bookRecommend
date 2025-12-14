@@ -2,6 +2,7 @@
 Document processing module for loading and chunking documents.
 """
 
+import pandas as pd
 from typing import List, Tuple
 from langchain_core.documents import Document
 from langchain_community.document_loaders.csv_loader import CSVLoader
@@ -18,7 +19,7 @@ class DocumentProcessor:
         file_path: str = None,
         chunk_size: int = None,
         chunk_overlap: int = None,
-        content_columns: List[str] = None
+        content_columns: List[str] = None,
     ):
         """
         Initialize DocumentProcessor.
@@ -35,8 +36,7 @@ class DocumentProcessor:
         self.content_columns = content_columns or Config.CONTENT_COLUMNS
 
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap
+            chunk_size=self.chunk_size, chunk_overlap=self.chunk_overlap
         )
 
     def load_csv(self) -> List[Document]:
@@ -83,9 +83,7 @@ class DocumentProcessor:
         return chunks
 
     def enrich_metadata(
-        self,
-        chunks: List[Document],
-        original_documents: List[Document]
+        self, chunks: List[Document], original_documents: List[Document]
     ) -> List[Document]:
         """
         Enrich chunk metadata with original document information.
@@ -99,25 +97,74 @@ class DocumentProcessor:
         """
         print("Enriching chunk metadata...")
 
+        # Load CSV to get all metadata directly
+        try:
+            df = pd.read_csv(self.file_path)
+            rank_column = Config.RANK_COLUMN
+            has_csv = True
+        except Exception as e:
+            print(f"Warning: Could not load CSV for metadata: {e}")
+            has_csv = False
+            df = None
+
         for i, chunk in enumerate(chunks):
             row_num = chunk.metadata.get("row")
             if row_num is None:
                 continue
 
-            # Find original document
-            if row_num < len(original_documents):
-                original_doc = original_documents[row_num]
+            # Get metadata directly from CSV
+            if has_csv and df is not None and row_num < len(df):
+                try:
+                    csv_row = df.iloc[row_num]
 
-                # Extract metadata from original document
-                content_lines = original_doc.page_content.split("\n")
-                for line in content_lines:
-                    if line.startswith("구분:"):
-                        chunk.metadata["구분"] = line.replace("구분:", "").strip()
-                    elif line.startswith("상품명:"):
-                        chunk.metadata["상품명"] = line.replace("상품명:", "").strip()
+                    # Always add these fields from CSV if they exist
+                    if "구분" in df.columns:
+                        chunk.metadata["구분"] = str(csv_row["구분"])
 
-                # Add chunk index
-                chunk.metadata["chunk_id"] = i
+                    if "상품명" in df.columns:
+                        chunk.metadata["상품명"] = str(csv_row["상품명"])
+
+                    # Add rank if column exists
+                    if rank_column in df.columns:
+                        chunk.metadata[rank_column] = csv_row[rank_column]
+
+                except Exception as e:
+                    print(f"Warning: Could not extract metadata for row {row_num}: {e}")
+
+                    # Fallback: try to extract from page_content
+                    if row_num < len(original_documents):
+                        original_doc = original_documents[row_num]
+                        content_lines = original_doc.page_content.split("\n")
+                        for line in content_lines:
+                            if (
+                                line.startswith("구분:")
+                                and "구분" not in chunk.metadata
+                            ):
+                                chunk.metadata["구분"] = line.replace(
+                                    "구분:", ""
+                                ).strip()
+                            elif (
+                                line.startswith("상품명:")
+                                and "상품명" not in chunk.metadata
+                            ):
+                                chunk.metadata["상품명"] = line.replace(
+                                    "상품명:", ""
+                                ).strip()
+            else:
+                # Fallback: extract from page_content if CSV not available
+                if row_num < len(original_documents):
+                    original_doc = original_documents[row_num]
+                    content_lines = original_doc.page_content.split("\n")
+                    for line in content_lines:
+                        if line.startswith("구분:"):
+                            chunk.metadata["구분"] = line.replace("구분:", "").strip()
+                        elif line.startswith("상품명:"):
+                            chunk.metadata["상품명"] = line.replace(
+                                "상품명:", ""
+                            ).strip()
+
+            # Add chunk index
+            chunk.metadata["chunk_id"] = i
 
         return chunks
 
