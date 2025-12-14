@@ -63,6 +63,20 @@ def initialize_session_state():
         st.session_state.agent = None
     if "system_ready" not in st.session_state:
         st.session_state.system_ready = False
+    if "config_changed" not in st.session_state:
+        st.session_state.config_changed = False
+
+    # Initialize config values in session state
+    if "use_mmr" not in st.session_state:
+        st.session_state.use_mmr = Config.USE_MMR
+    if "use_reranking" not in st.session_state:
+        st.session_state.use_reranking = Config.USE_RERANKING
+    if "use_adaptive_k" not in st.session_state:
+        st.session_state.use_adaptive_k = Config.USE_ADAPTIVE_K
+    if "default_k" not in st.session_state:
+        st.session_state.default_k = Config.DEFAULT_K
+    if "mmr_lambda" not in st.session_state:
+        st.session_state.mmr_lambda = Config.MMR_LAMBDA
 
 
 def display_chat_messages():
@@ -91,6 +105,26 @@ def process_user_query(user_query: str, agent: RAGAgent):
         return None, str(e)
 
 
+def apply_config_changes():
+    """Apply config changes to Config class and recreate agent."""
+    Config.USE_MMR = st.session_state.use_mmr
+    Config.USE_RERANKING = st.session_state.use_reranking
+    Config.USE_ADAPTIVE_K = st.session_state.use_adaptive_k
+    Config.DEFAULT_K = st.session_state.default_k
+    Config.MMR_LAMBDA = st.session_state.mmr_lambda
+
+    # Recreate agent with new settings
+    if st.session_state.system_ready:
+        st.session_state.agent = RAGAgent(
+            st.session_state.vectorstore_manager,
+            k=Config.DEFAULT_K,
+            use_advanced_search=any(
+                [Config.USE_MMR, Config.USE_RERANKING, Config.USE_ADAPTIVE_K]
+            ),
+        )
+    st.session_state.config_changed = False
+
+
 def sidebar_settings():
     """Display sidebar with system settings and information."""
     with st.sidebar:
@@ -102,12 +136,88 @@ def sidebar_settings():
         if st.session_state.system_ready:
             st.success("✅ 시스템 준비 완료")
             st.info(f"🤖 모델: {Config.CHAT_MODEL_NAME}")
-            st.info(f"🔍 검색 문서 수: {Config.DEFAULT_K}")
+            st.info(f"🔍 검색 문서 수: {st.session_state.default_k}")
 
-            with st.expander("고급 설정"):
-                st.write(f"**MMR 사용**: {'✅' if Config.USE_MMR else '❌'}")
-                st.write(f"**Reranking**: {'✅' if Config.USE_RERANKING else '❌'}")
-                st.write(f"**Adaptive K**: {'✅' if Config.USE_ADAPTIVE_K else '❌'}")
+            with st.expander("🔧 고급 설정", expanded=False):
+                st.markdown("### 검색 설정")
+
+                # DEFAULT_K setting
+                new_k = st.slider(
+                    "Default 검색 문서 수 (K)",
+                    min_value=1,
+                    max_value=10,
+                    value=st.session_state.default_k,
+                    help="검색 시 반환할 문서 개수",
+                )
+                if new_k != st.session_state.default_k:
+                    st.session_state.default_k = new_k
+                    st.session_state.config_changed = True
+
+                st.markdown("---")
+                st.markdown("### 고급 검색 기능")
+
+                # MMR setting
+                use_mmr = st.checkbox(
+                    "MMR (다양성 검색) 사용",
+                    value=st.session_state.use_mmr,
+                    help="검색 결과의 다양성을 높입니다",
+                )
+                if use_mmr != st.session_state.use_mmr:
+                    st.session_state.use_mmr = use_mmr
+                    st.session_state.config_changed = True
+
+                # MMR Lambda setting (only if MMR is enabled)
+                if use_mmr:
+                    mmr_lambda = st.slider(
+                        "MMR Lambda",
+                        min_value=0.0,
+                        max_value=1.0,
+                        value=st.session_state.mmr_lambda,
+                        step=0.1,
+                        help="0=가장 다양한 결과, 1=가장 관련성 높은 결과",
+                    )
+                    if mmr_lambda != st.session_state.mmr_lambda:
+                        st.session_state.mmr_lambda = mmr_lambda
+                        st.session_state.config_changed = True
+
+                # Reranking setting
+                use_reranking = st.checkbox(
+                    "Reranking 사용",
+                    value=st.session_state.use_reranking,
+                    help="베스트셀러 순위를 고려하여 재정렬합니다",
+                )
+                if use_reranking != st.session_state.use_reranking:
+                    st.session_state.use_reranking = use_reranking
+                    st.session_state.config_changed = True
+
+                # Adaptive K setting
+                use_adaptive_k = st.checkbox(
+                    "Adaptive K 사용",
+                    value=st.session_state.use_adaptive_k,
+                    help="유사도에 따라 검색 결과 개수를 자동 조절합니다",
+                )
+                if use_adaptive_k != st.session_state.use_adaptive_k:
+                    st.session_state.use_adaptive_k = use_adaptive_k
+                    st.session_state.config_changed = True
+
+                # Apply button
+                st.markdown("---")
+                if st.session_state.config_changed:
+                    if st.button(
+                        "✅ 설정 적용", use_container_width=True, type="primary"
+                    ):
+                        apply_config_changes()
+                        st.success("설정이 적용되었습니다!")
+                        st.rerun()
+                else:
+                    st.info("현재 설정:")
+                    st.write(f"• MMR: {'✅' if st.session_state.use_mmr else '❌'}")
+                    st.write(
+                        f"• Reranking: {'✅' if st.session_state.use_reranking else '❌'}"
+                    )
+                    st.write(
+                        f"• Adaptive K: {'✅' if st.session_state.use_adaptive_k else '❌'}"
+                    )
         else:
             st.warning("⏳ 시스템 초기화 중...")
 
