@@ -8,17 +8,15 @@ from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
 
 # Try to load Streamlit secrets if available (for deployment)
 try:
+    # Load environment variables from .env file
+    load_dotenv()
     import streamlit as st
 
-    GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY"))
-    LANGSMITH_API_KEY = st.secrets.get(
-        "LANGSMITH_API_KEY", os.getenv("LANGSMITH_API_KEY")
-    )
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    LANGSMITH_API_KEY = st.secrets["LANGSMITH_API_KEY"]
 except (ImportError, FileNotFoundError, AttributeError):
     # Fallback to environment variables if streamlit not available or secrets not configured
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
