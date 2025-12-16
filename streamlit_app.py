@@ -8,6 +8,7 @@ from config import Config
 from document_processor import DocumentProcessor
 from vector_store import VectorStoreManager
 from rag_agent import RAGAgent
+from orchestrator import AmbiguityAwareOrchestrator
 
 
 # Page configuration
@@ -15,7 +16,7 @@ st.set_page_config(
     page_title="AI 도서 추천 챗봇",
     page_icon="📚",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",  # 사이드바를 기본적으로 숨김
 )
 
 
@@ -54,10 +55,18 @@ def initialize_session_state():
         st.session_state.messages = []
     if "agent" not in st.session_state:
         st.session_state.agent = None
+    if "orchestrator" not in st.session_state:
+        st.session_state.orchestrator = None
+    if "awaiting_clarification" not in st.session_state:
+        st.session_state.awaiting_clarification = False
     if "system_ready" not in st.session_state:
         st.session_state.system_ready = False
     if "config_changed" not in st.session_state:
         st.session_state.config_changed = False
+    if "use_orchestrator" not in st.session_state:
+        st.session_state.use_orchestrator = True  # Default to new orchestrator
+    if "include_purchase_links" not in st.session_state:
+        st.session_state.include_purchase_links = True  # Default to include links
 
     # Initialize config values in session state
     if "use_mmr" not in st.session_state:
@@ -70,6 +79,8 @@ def initialize_session_state():
         st.session_state.default_k = Config.DEFAULT_K
     if "mmr_lambda" not in st.session_state:
         st.session_state.mmr_lambda = Config.MMR_LAMBDA
+    if "selected_model" not in st.session_state:
+        st.session_state.selected_model = Config.CHAT_MODEL_NAME
 
 
 def display_chat_messages():
@@ -79,42 +90,107 @@ def display_chat_messages():
             st.markdown(message["content"])
 
 
-def process_user_query(user_query: str, agent: RAGAgent):
+def process_user_query(user_query: str, agent: RAGAgent = None, orchestrator: AmbiguityAwareOrchestrator = None):
     """
     Process user query and generate response.
 
     Args:
         user_query: User's question
-        agent: RAGAgent instance
+        agent: RAGAgent instance (legacy mode)
+        orchestrator: AmbiguityAwareOrchestrator instance (new mode)
 
     Returns:
-        Response text from the agent
+        Tuple of (response_text, error, result_dict)
     """
     try:
-        response = agent.query(user_query, verbose=False)
-        response_text = agent.get_response_text(response)
-        return response_text, None
+        if orchestrator is not None:
+            # Use new orchestrator
+            if st.session_state.awaiting_clarification:
+                # This is a clarification response
+                result = orchestrator.process_clarification_response(user_query)
+            else:
+                # This is a new query
+                # Pass history excluding the current message (which was just appended)
+                chat_history = st.session_state.messages[:-1]
+                result = orchestrator.process_query(
+                    user_query,
+                    chat_history=chat_history,
+                    include_links=st.session_state.include_purchase_links
+                )
+
+            # Check if needs clarification
+            if result["needs_clarification"]:
+                st.session_state.awaiting_clarification = True
+                response_text = result["clarification_question"]
+            else:
+                st.session_state.awaiting_clarification = False
+                response_text = result["response"]
+
+            return response_text, None, result
+
+        elif agent is not None:
+            # Use legacy agent
+            response = agent.query(user_query, verbose=False, use_history=True)
+            response_text = agent.get_response_text(response)
+            return response_text, None, None
+
+        else:
+            return None, "No agent or orchestrator available", None
+
     except Exception as e:
-        return None, str(e)
+        return None, str(e), None
 
 
 def apply_config_changes():
-    """Apply config changes to Config class and recreate agent."""
-    Config.USE_MMR = st.session_state.use_mmr
-    Config.USE_RERANKING = st.session_state.use_reranking
-    Config.USE_ADAPTIVE_K = st.session_state.use_adaptive_k
-    Config.DEFAULT_K = st.session_state.default_k
-    Config.MMR_LAMBDA = st.session_state.mmr_lambda
+    """Apply config changes to Config class and recreate agent/orchestrator."""
+    # Config globals are NOT modified anymore to ensure session isolation.
+    # Instead, we pass the local config to the instances.
 
-    # Recreate agent with new settings
+    # Recreate based on mode
     if st.session_state.system_ready:
-        st.session_state.agent = RAGAgent(
-            st.session_state.vectorstore_manager,
-            k=Config.DEFAULT_K,
-            use_advanced_search=any(
-                [Config.USE_MMR, Config.USE_RERANKING, Config.USE_ADAPTIVE_K]
-            ),
-        )
+        if st.session_state.use_orchestrator:
+            # Create config dict for current session
+            retrieval_config = {
+                "use_mmr": st.session_state.use_mmr,
+                "use_reranking": st.session_state.use_reranking,
+                "use_adaptive_k": st.session_state.use_adaptive_k,
+                "mmr_lambda": st.session_state.mmr_lambda
+            }
+            
+            # Create new orchestrator instance with session config
+            new_orchestrator = AmbiguityAwareOrchestrator(
+                st.session_state.vectorstore_manager,
+                model_name=st.session_state.selected_model,
+                k=st.session_state.default_k,
+                verbose=False,
+                retrieval_config=retrieval_config
+            )
+            st.session_state.orchestrator = new_orchestrator
+        else:
+            # Legacy Agent support - warning
+            # RAGAgent might still rely on global config in some places, 
+            # but we are moving towards Orchestrator. 
+            # For now, we recreate it but it might still read global defaults unless refactored.
+            
+            # Save current chat history
+            old_chat_history = []
+            if st.session_state.agent:
+                old_chat_history = st.session_state.agent.chat_history.copy()
+
+            # Create new agent instance
+            new_agent = RAGAgent(
+                st.session_state.vectorstore_manager,
+                model_name=st.session_state.selected_model,
+                k=st.session_state.default_k,
+                use_advanced_search=any(
+                    [st.session_state.use_mmr, st.session_state.use_reranking, st.session_state.use_adaptive_k]
+                ),
+            )
+            # Force recreation
+            new_agent.create_agent(verbose=False, force_recreate=True)
+            new_agent.chat_history = old_chat_history
+            st.session_state.agent = new_agent
+
     st.session_state.config_changed = False
 
 
@@ -123,20 +199,66 @@ def sidebar_settings():
     with st.sidebar:
         st.title("⚙️ 설정")
 
-        st.markdown("---")
-        st.subheader("📊 시스템 정보")
-
         if st.session_state.system_ready:
             st.success("✅ 시스템 준비 완료")
-            st.info(f"🤖 모델: {Config.CHAT_MODEL_NAME}")
-            st.info(f"🔍 검색 문서 수: {st.session_state.default_k}")
 
-            with st.expander("🔧 고급 설정", expanded=False):
-                st.markdown("### 검색 설정")
+            # 기본 설정 (항상 표시)
+            with st.expander("🧠 Agent 모드", expanded=True):
+                use_orchestrator = st.checkbox(
+                    "Ambiguity-Aware Orchestrator 사용",
+                    value=st.session_state.use_orchestrator,
+                    help="모호한 질문을 자동으로 감지하고 처리하는 새로운 Agent"
+                )
+                if use_orchestrator != st.session_state.use_orchestrator:
+                    st.session_state.use_orchestrator = use_orchestrator
+                    st.session_state.config_changed = True
+                    st.session_state.awaiting_clarification = False
 
-                # DEFAULT_K setting
+                if st.session_state.use_orchestrator:
+                    st.caption("🆕 모호한 질문 자동 감지 및 명확화")
+                else:
+                    st.caption("📚 표준 RAG Agent")
+
+            # 출력 옵션
+            with st.expander("📋 출력 옵션", expanded=False):
+                include_links = st.checkbox(
+                    "구매 링크 포함",
+                    value=st.session_state.include_purchase_links,
+                    help="추천 결과에 Google 쇼핑, YES24, 알라딘 구매 링크 추가"
+                )
+                if include_links != st.session_state.include_purchase_links:
+                    st.session_state.include_purchase_links = include_links
+
+            # 모델 설정
+            with st.expander("🤖 모델 설정", expanded=False):
+                model_options = list(Config.AVAILABLE_MODELS.keys())
+                model_values = list(Config.AVAILABLE_MODELS.values())
+
+                # Find current model index
+                try:
+                    current_index = model_values.index(st.session_state.selected_model)
+                except ValueError:
+                    current_index = 0
+
+                selected_model_name = st.selectbox(
+                    "채팅 모델",
+                    options=model_options,
+                    index=current_index,
+                    help="사용할 LLM 모델을 선택하세요",
+                    label_visibility="collapsed"
+                )
+
+                new_model = Config.AVAILABLE_MODELS[selected_model_name]
+                if new_model != st.session_state.selected_model:
+                    st.session_state.selected_model = new_model
+                    st.session_state.config_changed = True
+
+                st.caption(f"현재: {selected_model_name}")
+
+            # 검색 설정
+            with st.expander("🔍 검색 설정", expanded=False):
                 new_k = st.slider(
-                    "Default 검색 문서 수 (K)",
+                    "검색 문서 수 (K)",
                     min_value=1,
                     max_value=10,
                     value=st.session_state.default_k,
@@ -146,12 +268,11 @@ def sidebar_settings():
                     st.session_state.default_k = new_k
                     st.session_state.config_changed = True
 
-                st.markdown("---")
-                st.markdown("### 고급 검색 기능")
+                st.markdown("**고급 검색 기능**")
 
                 # MMR setting
                 use_mmr = st.checkbox(
-                    "MMR (다양성 검색) 사용",
+                    "MMR (다양성 검색)",
                     value=st.session_state.use_mmr,
                     help="검색 결과의 다양성을 높입니다",
                 )
@@ -167,7 +288,7 @@ def sidebar_settings():
                         max_value=1.0,
                         value=st.session_state.mmr_lambda,
                         step=0.1,
-                        help="0=가장 다양한 결과, 1=가장 관련성 높은 결과",
+                        help="0=다양성 우선, 1=관련성 우선",
                     )
                     if mmr_lambda != st.session_state.mmr_lambda:
                         st.session_state.mmr_lambda = mmr_lambda
@@ -175,7 +296,7 @@ def sidebar_settings():
 
                 # Reranking setting
                 use_reranking = st.checkbox(
-                    "Reranking 사용",
+                    "Reranking (베스트셀러 고려)",
                     value=st.session_state.use_reranking,
                     help="베스트셀러 순위를 고려하여 재정렬합니다",
                 )
@@ -185,7 +306,7 @@ def sidebar_settings():
 
                 # Adaptive K setting
                 use_adaptive_k = st.checkbox(
-                    "Adaptive K 사용",
+                    "Adaptive K (자동 조절)",
                     value=st.session_state.use_adaptive_k,
                     help="유사도에 따라 검색 결과 개수를 자동 조절합니다",
                 )
@@ -194,8 +315,8 @@ def sidebar_settings():
                     st.session_state.config_changed = True
 
                 # Apply button
-                st.markdown("---")
                 if st.session_state.config_changed:
+                    st.divider()
                     if st.button(
                         "✅ 설정 적용", use_container_width=True, type="primary"
                     ):
@@ -203,30 +324,56 @@ def sidebar_settings():
                         st.success("설정이 적용되었습니다!")
                         st.rerun()
                 else:
-                    st.info("현재 설정:")
-                    st.write(f"• MMR: {'✅' if st.session_state.use_mmr else '❌'}")
-                    st.write(
-                        f"• Reranking: {'✅' if st.session_state.use_reranking else '❌'}"
+                    st.divider()
+                    st.caption("**현재 설정:**")
+                    st.caption(f"• MMR: {'✅' if st.session_state.use_mmr else '❌'} • Reranking: {'✅' if st.session_state.use_reranking else '❌'} • Adaptive K: {'✅' if st.session_state.use_adaptive_k else '❌'}")
+
+            # 시스템 관리
+            with st.expander("🔧 시스템 관리", expanded=False):
+                if st.button("🔄 시스템 재시작", help="Orchestrator를 강제로 재생성합니다", use_container_width=True):
+                    st.cache_resource.clear()
+                    # Create config dict for current session
+                    retrieval_config = {
+                        "use_mmr": st.session_state.use_mmr,
+                        "use_reranking": st.session_state.use_reranking,
+                        "use_adaptive_k": st.session_state.use_adaptive_k,
+                        "mmr_lambda": st.session_state.mmr_lambda
+                    }
+
+                    st.session_state.orchestrator = AmbiguityAwareOrchestrator(
+                        st.session_state.vectorstore_manager,
+                        model_name=st.session_state.selected_model,
+                        k=st.session_state.default_k,
+                        verbose=False,
+                        retrieval_config=retrieval_config
                     )
-                    st.write(
-                        f"• Adaptive K: {'✅' if st.session_state.use_adaptive_k else '❌'}"
-                    )
+                    st.success("✅ 시스템이 재시작되었습니다!")
+                    st.rerun()
+
+            # 사용 팁
+            with st.expander("💡 사용 팁", expanded=False):
+                st.markdown(
+                    """
+                    - 원하는 장르나 주제를 구체적으로 말씀해주세요
+                    - "추천해줘"라고 요청하면 다양한 도서를 추천받을 수 있습니다
+                    - 특정 카테고리(소설, 자기계발 등)를 언급해보세요
+                    """
+                )
+
         else:
             st.warning("⏳ 시스템 초기화 중...")
 
-        st.markdown("---")
-        st.subheader("💡 사용 팁")
-        st.markdown(
-            """
-        - 원하는 장르나 주제를 구체적으로 말씀해주세요
-        - "추천해줘"라고 요청하면 다양한 도서를 추천받을 수 있습니다
-        - 특정 카테고리(소설, 자기계발 등)를 언급해보세요
-        """
-        )
-
-        st.markdown("---")
+        # 대화 기록 삭제 버튼 (항상 하단에 표시)
+        st.divider()
         if st.button("🗑️ 대화 기록 삭제", use_container_width=True):
             st.session_state.messages = []
+            # Reset agent's chat history as well
+            if st.session_state.agent:
+                st.session_state.agent.chat_history = []
+            # Reset orchestrator state
+            if st.session_state.orchestrator:
+                st.session_state.orchestrator.reset_state()
+            st.session_state.awaiting_clarification = False
             st.rerun()
 
 
@@ -246,7 +393,28 @@ def main():
 
         if success:
             st.session_state.vectorstore_manager = vectorstore_manager
-            st.session_state.agent = RAGAgent(vectorstore_manager)
+
+            # Initialize both agent and orchestrator
+            st.session_state.agent = RAGAgent(
+                vectorstore_manager,
+                model_name=st.session_state.selected_model
+            )
+            # Create config dict for current session
+            retrieval_config = {
+                "use_mmr": st.session_state.use_mmr,
+                "use_reranking": st.session_state.use_reranking,
+                "use_adaptive_k": st.session_state.use_adaptive_k,
+                "mmr_lambda": st.session_state.mmr_lambda
+            }
+
+            st.session_state.orchestrator = AmbiguityAwareOrchestrator(
+                vectorstore_manager,
+                model_name=st.session_state.selected_model,
+                k=st.session_state.default_k,
+                verbose=False,
+                retrieval_config=retrieval_config
+            )
+
             st.session_state.system_ready = True
             st.success("✅ 시스템이 준비되었습니다! 질문을 입력해주세요.")
         else:
@@ -285,9 +453,17 @@ def main():
         # Generate and display assistant response
         with st.chat_message("assistant"):
             with st.spinner("생각하는 중..."):
-                response_text, error = process_user_query(
-                    prompt, st.session_state.agent
-                )
+                # Choose which agent to use
+                if st.session_state.use_orchestrator:
+                    response_text, error, result = process_user_query(
+                        prompt,
+                        orchestrator=st.session_state.orchestrator
+                    )
+                else:
+                    response_text, error, result = process_user_query(
+                        prompt,
+                        agent=st.session_state.agent
+                    )
 
                 if error:
                     st.error(f"오류가 발생했습니다: {error}")
@@ -296,6 +472,21 @@ def main():
                     )
 
                 st.markdown(response_text)
+
+                # Show debug info if in orchestrator mode
+                if st.session_state.use_orchestrator and result:
+                    with st.expander("🔍 처리 과정 정보 (디버그)", expanded=False):
+                        state = result.get("state")
+                        if state:
+                            st.write(f"**모호성 감지**: {state.is_ambiguous}")
+                            if state.is_ambiguous:
+                                st.write(f"**모호성 유형**: {state.ambiguity_type}")
+                                st.write(f"**신뢰도**: {state.ambiguity_confidence:.2f}")
+                            if state.rewritten_query:
+                                st.write(f"**재작성된 쿼리**: {state.rewritten_query}")
+                            st.write(f"**검색된 책 수**: {len(state.retrieved_books)}")
+                            if state.clarification_history:
+                                st.write(f"**명확화 이력**: {len(state.clarification_history)}회")
 
         # Add assistant message to chat history
         st.session_state.messages.append(

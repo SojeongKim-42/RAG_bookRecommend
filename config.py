@@ -42,15 +42,37 @@ class Config:
     # Model settings
     EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
     # Try gemini-1.5-flash if gemini-2.0-flash-lite quota is exceeded
-    CHAT_MODEL_NAME = "google_genai:gemini-2.0-flash"
+    CHAT_MODEL_NAME = "openai:gpt-5-mini"
+    
+    SUMMARIZATION_MODEL_NAME = "google_genai:gemini-2.0-flash-lite"
+
+    # Chain model settings (for orchestrator chains - use lightweight model)
+    CHAIN_MODEL_NAME = "google_genai:gemini-2.0-flash-lite"
+
+    # Available chat models
+    AVAILABLE_MODELS = {
+        "gpt-5-nano": "openai:gpt-5-nano",
+        "gpt-5-mini": "openai:gpt-5-mini",
+        "gemini-2.5-flash": "google_genai:gemini-2.5-flash",
+        "gemini-2.0-flash": "google_genai:gemini-2.0-flash",
+        "gemini-2.0-flash-lite": "google_genai:gemini-2.0-flash-lite",
+        "gemini-1.5-flash": "google_genai:gemini-1.5-flash",
+    }
+    
+    MODEL_PROVIDERS = {
+        "Google": "google_genai",
+        "OpenAI": "openai",
+        "Anthropic": "anthropic",
+        "Hugging Face": "huggingface",
+    }
 
     # Text processing settings
     CHUNK_SIZE = 1000
     CHUNK_OVERLAP = 100
 
     # Retrieval settings
-    DEFAULT_K = 2  # Number of documents to retrieve
-    MAX_K = 4  # Maximum number of documents for deduplication
+    DEFAULT_K = 5  # Number of documents to retrieve
+    MAX_K = 7  # Maximum number of documents for deduplication
 
     # MMR settings
     USE_MMR = True  # Use Maximal Marginal Relevance for diversity
@@ -65,9 +87,14 @@ class Config:
 
     # Adaptive Top-k settings
     USE_ADAPTIVE_K = True  # Use adaptive top-k strategy
-    MIN_K = 2  # Minimum number of documents
+    MIN_K = 3  # Minimum number of documents (Increased from 2)
     MAX_ADAPTIVE_K = 10  # Maximum number of documents for adaptive retrieval
-    SIMILARITY_THRESHOLD = 0.7  # Threshold for adaptive k
+    SIMILARITY_THRESHOLD = 0.5  # Threshold for adaptive k (Lowered from 0.7)
+    RELATIVE_DROP_THRESHOLD = 0.05  # Threshold for elbow method
+
+    # Cross-Encoder settings
+    USE_CROSS_ENCODER = False  # Default to False (enable in experiments)
+    CROSS_ENCODER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"  # Lightweight yet powerful reranker
 
     # CSV loader settings
     CSV_ENCODING = "utf-8"

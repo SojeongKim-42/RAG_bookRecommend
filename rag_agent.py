@@ -5,8 +5,11 @@ Supports MMR, metadata filtering, reranking, and adaptive top-k strategies.
 
 from typing import List, Dict, Any, Optional
 from langchain.chat_models import init_chat_model
-from langchain.agents.middleware import dynamic_prompt, ModelRequest
+from langchain.agents.middleware import dynamic_prompt, ModelRequest, SummarizationMiddleware
 from langchain.agents import create_agent
+from langchain.messages import SystemMessage, HumanMessage
+from google.genai.types import GoogleSearch, Tool
+from langchain.tools import tool
 
 from config import Config
 from vector_store import VectorStoreManager
@@ -45,6 +48,8 @@ class RAGAgent:
         self.use_advanced_search = use_advanced_search
         self.agent = None
         self.model = None
+        self.chat_history = []  # Store conversation history
+        self.summarization_model = init_chat_model(Config.SUMMARIZATION_MODEL_NAME)
 
     def _initialize_model(self):
         """Initialize the chat model with fallback options."""
@@ -54,15 +59,23 @@ class RAGAgent:
                 self.model = init_chat_model(self.model_name)
             except Exception as e:
                 print(f"Failed to initialize {self.model_name}: {str(e)}")
-                # Try fallback model
-                fallback_model = "google_genai:gemini-1.5-flash"
-                print(f"Trying fallback model: {fallback_model}")
-                try:
-                    self.model = init_chat_model(fallback_model)
-                    self.model_name = fallback_model
-                except Exception as fallback_error:
-                    print(f"Fallback model also failed: {str(fallback_error)}")
-                    raise
+                # Try fallback models in order
+                fallback_models = [
+                    "google_genai:gemini-1.5-flash",
+                    "huggingface:openai/gpt-oss-20b"
+                ]
+                for fallback_model in fallback_models:
+                    print(f"Trying fallback model: {fallback_model}")
+                    try:
+                        self.model = init_chat_model(fallback_model)
+                        self.model_name = fallback_model
+                        print(f"Successfully initialized {fallback_model}")
+                        break
+                    except Exception as fallback_error:
+                        print(f"Fallback model {fallback_model} also failed: {str(fallback_error)}")
+                        continue
+                else:
+                    raise Exception("All models failed to initialize")
         return self.model
 
     def _create_prompt_middleware(self):
@@ -110,8 +123,8 @@ class RAGAgent:
                     "You are a helpful book recommendation assistant. "
                     "Use the following context from our book database to provide accurate recommendations:\n\n"
                     f"{docs_content}\n\n"
-                    "Based on this context, provide relevant book recommendations. "
-                    "If you recommend a book, mention its category (구분) and title (상품명). "
+                    "Based on this context, provide relevant book recommendations."
+                    "If you recommend a book, mention its category and title. "
                     "Consider the bestseller rankings and diverse options in your recommendations."
                 )
 
@@ -123,37 +136,52 @@ class RAGAgent:
 
         return prompt_with_context
 
-    def create_agent(self, tools: List = None, verbose: bool = False):
+    def create_agent(self, tools: List = None, verbose: bool = False, force_recreate: bool = False):
         """
         Create the agent with middleware.
 
         Args:
             tools: List of tools for the agent
             verbose: Whether to enable verbose mode
+            force_recreate: Force recreation of the agent even if it exists
 
         Returns:
             Created agent
         """
-        if self.agent is None:
+        if self.agent is None or force_recreate:
+            # Reset model if forcing recreation
+            if force_recreate:
+                self.model = None
+                self.agent = None
+
             model = self._initialize_model()
-            prompt_middleware = self._create_prompt_middleware()
 
             print("Creating RAG agent...")
             self.agent = create_agent(
                 model=model,
                 tools=tools or [],
-                middleware=[prompt_middleware],
+                middleware=[
+                    self._create_prompt_middleware(),
+                    SummarizationMiddleware(
+                        model=self.summarization_model,
+                        trigger=[
+                            ("messages", 5),
+                            ("tokens", 2000),
+                        ]
+                    )
+                    ],
             )
 
         return self.agent
 
-    def query(self, question: str, verbose: bool = False) -> Dict[str, Any]:
+    def query(self, question: str, verbose: bool = False, use_history: bool = False) -> Dict[str, Any]:
         """
         Query the agent with a question.
 
         Args:
             question: User's question
             verbose: Whether to print verbose output
+            use_history: Whether to use conversation history
 
         Returns:
             Agent response
@@ -190,12 +218,38 @@ class RAGAgent:
             print(f"Error extracting response text: {str(e)}")
             return "Error: Could not extract response"
 
-    def interactive_mode(self):
-        """Run agent in interactive mode for continuous queries."""
+    def interactive_mode(self, select_model: bool = False):
+        """
+        Run agent in interactive mode for continuous queries with conversation history.
+
+        Args:
+            select_model: If True, prompt user to select a model before starting
+        """
         print("\n=== RAG Book Recommendation Agent ===")
-        print("Ask me about book recommendations! (Type 'quit' to exit)\n")
+
+        # Model selection
+        if select_model:
+            print("\nAvailable models:")
+            models = list(Config.AVAILABLE_MODELS.items())
+            for i, (name, model_id) in enumerate(models, 1):
+                print(f"{i}. {name} ({model_id})")
+            print(f"{len(models) + 1}. Use default ({self.model_name})")
+
+            try:
+                choice = input(f"\nSelect model (1-{len(models) + 1}): ").strip()
+                choice_num = int(choice)
+                if 1 <= choice_num <= len(models):
+                    selected_name, selected_model = models[choice_num - 1]
+                    self.model_name = selected_model
+                    print(f"Selected model: {selected_name} ({selected_model})")
+            except (ValueError, IndexError):
+                print(f"Invalid choice. Using default model: {self.model_name}")
+
+        print("\nAsk me about book recommendations! (Type 'quit' to exit)")
+        print("Your conversation history will be remembered.\n")
 
         self.create_agent(verbose=False)
+        self.chat_history = []  # Reset chat history
 
         while True:
             try:
@@ -208,7 +262,7 @@ class RAGAgent:
                 if not query:
                     continue
 
-                response = self.query(query)
+                response = self.query(query, use_history=True)
                 response_text = self.get_response_text(response)
 
                 print(f"\nAgent: {response_text}\n")

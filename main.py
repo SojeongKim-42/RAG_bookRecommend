@@ -62,15 +62,16 @@ def run_single_query(query: str, vectorstore_manager: VectorStoreManager) -> Non
     print("\n" + "=" * 80)
 
 
-def run_interactive_mode(vectorstore_manager: VectorStoreManager) -> None:
+def run_interactive_mode(vectorstore_manager: VectorStoreManager, select_model: bool = False) -> None:
     """
     Run interactive mode for continuous queries.
 
     Args:
         vectorstore_manager: Initialized VectorStoreManager
+        select_model: If True, prompt user to select a model
     """
     agent = RAGAgent(vectorstore_manager)
-    agent.interactive_mode()
+    agent.interactive_mode(select_model=select_model)
 
 
 def main():
@@ -98,6 +99,11 @@ def main():
         action="store_true",
         help="Disable advanced search features (MMR, reranking, adaptive-k)",
     )
+    parser.add_argument(
+        "--select-model",
+        action="store_true",
+        help="Select model before starting interactive mode",
+    )
 
     args = parser.parse_args()
 
@@ -123,7 +129,7 @@ def main():
         elif args.test_vector_store:
             vectorstore_manager.test_vector_store(args.disable_advanced)
         else:
-            run_interactive_mode(vectorstore_manager)
+            run_interactive_mode(vectorstore_manager, select_model=args.select_model)
 
     except KeyboardInterrupt:
         print("\n\nInterrupted by user. Exiting...")
