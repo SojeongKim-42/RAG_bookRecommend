@@ -3,11 +3,11 @@ Main entry point for RAG Book Recommendation System.
 """
 
 import argparse
-from config import Config
-from document_processor import DocumentProcessor
-from vector_store import VectorStoreManager
-from rag_agent import RAGAgent
-from utils import print_statistics
+from src.config import Config
+from src.data.document_processor import DocumentProcessor
+from src.data.vector_store import VectorStoreManager
+from src.core.rag_agent import RAGAgent
+from src.utils import print_statistics
 
 
 def setup_system() -> tuple:
@@ -59,7 +59,6 @@ def run_single_query(query: str, vectorstore_manager: VectorStoreManager) -> Non
     response_text = agent.get_response_text(response)
     print("\n=== Agent Response ===")
     print(response_text)
-    print("\n" + "=" * 80)
 
 
 def run_interactive_mode(vectorstore_manager: VectorStoreManager, select_model: bool = False) -> None:

@@ -8,17 +8,15 @@ Uses FAISS with advanced retrieval features:
 """
 
 import os
-import re
 from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 
 import torch
-import numpy as np
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 
-from config import Config
+from src.config import Config
 
 
 class VectorStoreManager:
@@ -380,65 +378,7 @@ class VectorStoreManager:
             print(f"Error in adaptive k calculation: {str(e)}")
             return min_k
 
-    def rerank_with_cross_encoder(
-        self,
-        query: str,
-        results: List[Document],
-        top_n: int = None
-    ) -> List[Document]:
-        """
-        Rerank documents using a Cross-Encoder model.
 
-        Args:
-            query: Search query
-            results: List of documents to rerank
-            top_n: Number of documents to return
-
-        Returns:
-            Reranked list of documents
-        """
-        if not results:
-            return []
-
-        model_name = getattr(Config, "CROSS_ENCODER_MODEL_NAME", "BAAI/bge-reranker-v2-m3")
-        top_n = top_n or len(results)
-
-        print(f"Reranking {len(results)} documents with Cross-Encoder: {model_name}")
-
-        try:
-            from sentence_transformers import CrossEncoder
-            
-            # Initialize model if not already loaded
-            if self.cross_encoder is None:
-                # Use device config if possible
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                self.cross_encoder = CrossEncoder(model_name, device=device)
-            
-            model = self.cross_encoder
-
-            # Prepare pairs
-            pairs = [[query, doc.page_content] for doc in results]
-            
-            # Predict scores
-            scores = model.predict(pairs)
-
-            # Combine docs with scores
-            doc_scores = list(zip(results, scores))
-
-            # Sort by score descending
-            doc_scores.sort(key=lambda x: x[1], reverse=True)
-
-            # Return top_n documents
-            reranked_docs = [doc for doc, score in doc_scores[:top_n]]
-            
-            return reranked_docs
-
-        except ImportError:
-            print("Error: sentence-transformers not installed. Skipping Cross-Encoder reranking.")
-            return results
-        except Exception as e:
-            print(f"Error during Cross-Encoder reranking: {str(e)}")
-            return results
 
     def advanced_search(
         self,
@@ -446,7 +386,6 @@ class VectorStoreManager:
         use_mmr: bool = None,
         use_reranking: bool = None,
         use_adaptive_k: bool = None,
-        use_cross_encoder: bool = None,
         k: int = None,
         filter: Dict[str, Any] = None,
         **kwargs,
@@ -459,14 +398,12 @@ class VectorStoreManager:
         - MMR for diversity
         - Metadata filtering
         - Bestseller reranking
-        - Cross-Encoder reranking (New)
 
         Args:
             query: Search query
             use_mmr: Whether to use MMR
             use_reranking: Whether to use bestseller reranking
             use_adaptive_k: Whether to use adaptive k
-            use_cross_encoder: Whether to use Cross-Encoder
             k: Number of documents
             filter: Optional metadata filter
             **kwargs: Additional parameters
@@ -481,14 +418,9 @@ class VectorStoreManager:
         use_adaptive_k = (
             use_adaptive_k if use_adaptive_k is not None else Config.USE_ADAPTIVE_K
         )
-        # Default to Config value if not provided
-        config_use_ce = getattr(Config, "USE_CROSS_ENCODER", False)
-        use_cross_encoder = use_cross_encoder if use_cross_encoder is not None else config_use_ce
 
         print("\n=== Advanced Search ===")
 
-        # Step 1: Determine k
-        # If using Cross-Encoder, we might want to fetch more candidates first
         initial_k = k or Config.DEFAULT_K
         
         if use_adaptive_k:
@@ -503,11 +435,6 @@ class VectorStoreManager:
         else:
             k = initial_k
 
-        # If using Cross-Encoder, fetch slightly more candidates for reranking?
-        # For now, let's keep it simple: retrieve 'k' docs then rerank them.
-        # Or better: MMR selects 'k' docs, then we rerank them.
-
-        # Step 2: Retrieve documents
         if use_mmr:
             # MMR search for diversity
             results = self.mmr_search(
@@ -520,63 +447,9 @@ class VectorStoreManager:
                     if key in ["fetch_k", "lambda_mult"]
                 },
             )
-            # Need scores for bestseller reranking
-            if use_reranking and not use_cross_encoder:
-                 # If we are going to do Cross-Encoder later, we don't necessarily need vector scores right now,
-                 # but for bestseller reranking we currently use them.
-                 # Re-fetching with scores is inefficient but consistent with current logic.
-                 # Optimization: mmr_search could return scores, but standard interface doesn't.
-                 pass
-                 
-        else:
-            # Standard similarity search without scores (will get scores if needed below)
-            # Actually similarity_search returns docs.
-            results = self.similarity_search(query, k=k, filter=filter)
-
-        # Step 3: Rerank
-        # Priority: Cross-Encoder > Bestseller Reranking
-        # (Usually you don't do both, or you do Bestseller as a pre-filter)
-        
-        if use_cross_encoder:
-            # Semantic Reranking
-            results = self.rerank_with_cross_encoder(query, results)
-        
-        elif use_reranking:
-            # Heuristic Bestseller Reranking
-            # We need scores for this logic
-            # This part is a bit tricky because 'results' acts as docs now.
-            # We need to re-score them against the query to get 'similarity_score' for the formula.
-            # For efficiency, let's trust the order implicitly or re-calculate.
-            
-            # To strictly follow previous logic, we need (doc, score) tuples.
-            # Let's re-fetch scores for the selected docs.
-            results_with_scores = []
-            for doc in results:
-                # Calculate sim score (hacky but accurate)
-                # Actually, simple way: just pass 1.0 as score if we can't get it, 
-                # OR assume vector store returned them in order.
-                # Let's re-query this specific doc? No, too slow.
-                # Let's just skip score-based component if we lost it?
-                # The original code did: results_with_scores = similarity_search_with_score...
-                pass
-
-            # Only do bestseller reranking if we have scores, OR if we strictly follow the old flow.
-            # The old flow was: if MMR -> re-search with scores.
-            # Let's keep the old flow for 'use_reranking' case to avoid regression.
+        if use_reranking:
             if use_mmr:
                  results_with_scores = self.similarity_search_with_score(query, k=k, filter=filter)
-                 # Wait, this undoes MMR selection! The previous code had this bug/feature.
-                 # Previous code:
-                 # if use_mmr: ... results = mmr_search ...
-                 # if use_reranking: results_with_scores = similarity_search_with_score ...
-                 # This means MMR was IGNORED if reranking was on!
-                 # That explains why MMR didn't help much.
-                 # Let's FIX THIS: If MMR is used, we should rerank the MMR results.
-                 
-                 # Correct flow:
-                 # 1. Get candidates (MMR or Standard)
-                 # 2. Rerank them
-                 pass
             else:
                  results_with_scores = self.similarity_search_with_score(query, k=k, filter=filter)
 

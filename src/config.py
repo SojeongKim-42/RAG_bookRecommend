@@ -28,9 +28,10 @@ class Config:
     """Configuration class for managing system settings."""
 
     # Project paths
-    BASE_DIR = Path(__file__).parent
-    DATA_DIR = BASE_DIR / "data"
-    VECTOR_STORE_DIR = BASE_DIR / "faiss_index"
+    SRC_DIR = Path(__file__).parent
+    PROJECT_ROOT = SRC_DIR.parent
+    DATA_DIR = PROJECT_ROOT / "data"
+    VECTOR_STORE_DIR = PROJECT_ROOT / "faiss_index"
 
     # Data files
     DATA_FILE = DATA_DIR / "combined_preprocessed.csv"
@@ -92,9 +93,7 @@ class Config:
     SIMILARITY_THRESHOLD = 0.5  # Threshold for adaptive k (Lowered from 0.7)
     RELATIVE_DROP_THRESHOLD = 0.05  # Threshold for elbow method
 
-    # Cross-Encoder settings
-    USE_CROSS_ENCODER = False  # Default to False (enable in experiments)
-    CROSS_ENCODER_MODEL_NAME = "BAAI/bge-reranker-v2-m3"  # Lightweight yet powerful reranker
+
 
     # CSV loader settings
     CSV_ENCODING = "utf-8"

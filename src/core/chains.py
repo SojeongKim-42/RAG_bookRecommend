@@ -7,33 +7,9 @@ from typing import Dict, Any, List, Optional
 from urllib.parse import quote_plus
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage, HumanMessage
-from config import Config
+from src.config import Config
 
 
-def generate_google_shopping_link(book_title: str, author: str = None) -> str:
-    """
-    Generate Google Shopping search link for a book.
-
-    Args:
-        book_title: Book title
-        author: Author name (optional)
-
-    Returns:
-        Google Shopping search URL
-    """
-    # Create search query
-    search_query = book_title
-    if author:
-        search_query = f"{book_title} {author}"
-
-    # Add "책 구매" to search query for better results
-    search_query = f"{search_query} 책 구매"
-
-    # URL encode
-    encoded_query = quote_plus(search_query)
-
-    # Google Shopping search URL
-    return f"https://www.google.com/search?q={encoded_query}&tbm=shop"
 
 
 def generate_search_links(book_title: str, author: str = None) -> Dict[str, str]:

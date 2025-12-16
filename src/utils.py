@@ -134,8 +134,6 @@ class ResultFormatter:
             if show_full_content:
                 output.append(f"   Full content: {book['matched_content']}\n")
 
-        output.append("=" * 80)
-
         return "\n".join(output)
 
 
@@ -186,4 +184,3 @@ def print_statistics(documents: List[Document], chunks: List[Document]) -> None:
 
     print(f"Unique categories: {len(categories)}")
     print(f"Categories: {', '.join(sorted(categories))}")
-    print("=" * 50 + "\n")

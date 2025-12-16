@@ -9,15 +9,15 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
-from chains import (
+from src.core.chains import (
     AmbiguityDetector,
     QueryRewriter,
     RetrieveQualityEvaluator,
     ClarificationQuestionGenerator,
     FinalRecommender
 )
-from vector_store import VectorStoreManager
-from config import Config
+from src.data.vector_store import VectorStoreManager
+from src.config import Config
 
 
 class AgentState(Enum):

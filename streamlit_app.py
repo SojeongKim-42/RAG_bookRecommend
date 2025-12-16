@@ -4,11 +4,11 @@ AI 기반 도서 추천 챗봇 웹 애플리케이션
 """
 
 import streamlit as st
-from config import Config
-from document_processor import DocumentProcessor
-from vector_store import VectorStoreManager
-from rag_agent import RAGAgent
-from orchestrator import AmbiguityAwareOrchestrator
+from src.config import Config
+from src.data.document_processor import DocumentProcessor
+from src.data.vector_store import VectorStoreManager
+from src.core.rag_agent import RAGAgent
+from src.core.orchestrator import AmbiguityAwareOrchestrator
 
 
 # Page configuration

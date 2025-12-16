@@ -7,12 +7,10 @@ from typing import List, Dict, Any, Optional
 from langchain.chat_models import init_chat_model
 from langchain.agents.middleware import dynamic_prompt, ModelRequest, SummarizationMiddleware
 from langchain.agents import create_agent
-from langchain.messages import SystemMessage, HumanMessage
-from google.genai.types import GoogleSearch, Tool
-from langchain.tools import tool
 
-from config import Config
-from vector_store import VectorStoreManager
+
+from src.config import Config
+from src.data.vector_store import VectorStoreManager
 
 
 class RAGAgent:

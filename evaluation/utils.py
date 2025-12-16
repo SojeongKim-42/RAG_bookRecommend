@@ -1,21 +1,18 @@
 """
-Script to run evaluation on RAG book recommendation system.
+Utility functions for RAG evaluation.
+Extracted from run_evaluation.py for shared usage.
 """
 
-import argparse
 import json
 import numpy as np
 from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
-from config import Config
-from vector_store import VectorStoreManager
-from evaluation_dataset import EvaluationDataset, QueryType
-from evaluation_metrics import EvaluationRunner, EvaluationResult
+from evaluation.metrics import EvaluationResult
 
 
-def convert_to_serializable(obj):
+def convert_to_serializable(obj: Any) -> Any:
     """Convert numpy/pandas types to JSON serializable types."""
     if isinstance(obj, (np.integer, np.int64)):
         return int(obj)
@@ -33,7 +30,8 @@ def convert_to_serializable(obj):
 def save_results(
     results: List[EvaluationResult],
     aggregated: Dict[str, Any],
-    output_dir: str = "evaluation_results"
+    output_dir: Union[str, Path] = "evaluation_results",
+    experiment_name: str = None
 ):
     """
     Save evaluation results to files.
@@ -42,14 +40,16 @@ def save_results(
         results: List of evaluation results
         aggregated: Aggregated metrics
         output_dir: Directory to save results
+        experiment_name: Optional name to prefix files or organize folder
     """
     output_path = Path(output_dir)
-    output_path.mkdir(exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    prefix = f"{experiment_name}_" if experiment_name else ""
 
     # Save detailed results
-    detailed_file = output_path / f"detailed_results_{timestamp}.json"
+    detailed_file = output_path / f"{prefix}detailed_results_{timestamp}.json"
     detailed_data = []
 
     for result in results:
@@ -109,7 +109,7 @@ def save_results(
     print(f"Detailed results saved to: {detailed_file}")
 
     # Save aggregated results
-    aggregated_file = output_path / f"aggregated_results_{timestamp}.json"
+    aggregated_file = output_path / f"{prefix}aggregated_results_{timestamp}.json"
     aggregated = convert_to_serializable(aggregated)
     with open(aggregated_file, "w", encoding="utf-8") as f:
         json.dump(aggregated, f, ensure_ascii=False, indent=2)
@@ -117,11 +117,22 @@ def save_results(
     print(f"Aggregated results saved to: {aggregated_file}")
 
     # Save summary report
-    summary_file = output_path / f"summary_report_{timestamp}.txt"
-    with open(summary_file, "w", encoding="utf-8") as f:
-        f.write("=" * 80 + "\n")
-        f.write("RAG BOOK RECOMMENDATION SYSTEM - EVALUATION REPORT\n")
-        f.write("=" * 80 + "\n\n")
+    summary_file = output_path / f"{prefix}summary_report_{timestamp}.txt"
+    _write_summary_report(summary_file, timestamp, aggregated, results, experiment_name)
+    print(f"Summary report saved to: {summary_file}")
+
+
+def _write_summary_report(
+    filepath: Path,
+    timestamp: str,
+    aggregated: Dict[str, Any],
+    results: List[EvaluationResult],
+    experiment_name: str = None
+):
+    """Helper to write summary report text file."""
+    with open(filepath, "w", encoding="utf-8") as f:
+        title = f"EVALUATION REPORT: {experiment_name}" if experiment_name else "RAG BOOK RECOMMENDATION SYSTEM - EVALUATION REPORT"
+        f.write(f"{title}\n")
         f.write(f"Timestamp: {timestamp}\n")
         f.write(f"Total Queries: {aggregated['total_queries']}\n\n")
 
@@ -186,8 +197,6 @@ def save_results(
             f.write(f"   Expected: {result.genre_metrics.expected_genres}\n")
             f.write(f"   Missing: {result.genre_metrics.missing_genres}\n\n")
 
-    print(f"Summary report saved to: {summary_file}")
-
 
 def print_summary(aggregated: Dict[str, Any]):
     """
@@ -196,9 +205,7 @@ def print_summary(aggregated: Dict[str, Any]):
     Args:
         aggregated: Aggregated metrics
     """
-    print("\n" + "=" * 80)
     print("EVALUATION SUMMARY")
-    print("=" * 80)
 
     print(f"\nTotal Queries: {aggregated['total_queries']}")
 
@@ -215,7 +222,7 @@ def print_summary(aggregated: Dict[str, Any]):
     print("\n" + "-" * 80)
     print("OVERALL SEMANTIC METRICS")
     print("-" * 80)
-    
+
     semantic_metrics = aggregated.get("semantic_metrics", {})
     print(f"Average Similarity: {semantic_metrics.get('avg_similarity', 0.0):.3f}")
 
@@ -229,112 +236,3 @@ def print_summary(aggregated: Dict[str, Any]):
         print(f"  Precision:  {metrics['avg_precision']:.3f}")
         print(f"  Recall:     {metrics['avg_recall']:.3f}")
         print(f"  Semantic:   {metrics.get('avg_semantic_similarity', 0.0):.3f}")
-
-    print("\n" + "=" * 80 + "\n")
-
-
-def main():
-    """Main function."""
-    parser = argparse.ArgumentParser(
-        description="Evaluate RAG Book Recommendation System"
-    )
-    parser.add_argument(
-        "--k",
-        type=int,
-        default=5,
-        help="Number of documents to retrieve (default: 5)"
-    )
-    parser.add_argument(
-        "--query-type",
-        type=str,
-        choices=["all", "specific", "emotional", "situational", "vague", "multi_intent"],
-        default="all",
-        help="Type of queries to evaluate (default: all)"
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        default="evaluation_results",
-        help="Directory to save results (default: evaluation_results)"
-    )
-    parser.add_argument(
-        "--no-save",
-        action="store_true",
-        help="Don't save results to files"
-    )
-    parser.add_argument(
-        "--sample",
-        type=int,
-        help="Evaluate only a sample of N queries"
-    )
-
-    args = parser.parse_args()
-
-    try:
-        # Setup
-        print("Setting up evaluation environment...")
-        Config.setup_environment()
-
-        # Load vector store
-        print("Loading vector store...")
-        vectorstore_manager = VectorStoreManager()
-        if not vectorstore_manager.exists():
-            raise FileNotFoundError(
-                "Vector store not found. Please run main.py first to create it."
-            )
-        vectorstore_manager.load_vectorstore()
-
-        # Load evaluation dataset
-        print("Loading evaluation dataset...")
-        dataset = EvaluationDataset()
-
-        # Filter queries by type if specified
-        if args.query_type == "all":
-            test_queries = dataset.get_all_queries()
-        else:
-            query_type_map = {
-                "specific": QueryType.SPECIFIC,
-                "emotional": QueryType.EMOTIONAL,
-                "situational": QueryType.SITUATIONAL,
-                "vague": QueryType.VAGUE,
-                "multi_intent": QueryType.MULTI_INTENT,
-            }
-            test_queries = dataset.get_queries_by_type(query_type_map[args.query_type])
-
-        # Sample if requested
-        if args.sample:
-            import random
-            test_queries = random.sample(test_queries, min(args.sample, len(test_queries)))
-
-        print(f"Evaluating {len(test_queries)} queries with k={args.k}...")
-        print()
-
-        # Create evaluation runner
-        runner = EvaluationRunner(vectorstore_manager)
-
-        # Run evaluation
-        results = runner.evaluate_dataset(test_queries, retrieval_config={"k": args.k})
-
-        # Aggregate results
-        print("\nAggregating results...")
-        aggregated = runner.aggregate_results(results)
-
-        # Print summary
-        print_summary(aggregated)
-
-        # Save results
-        if not args.no_save:
-            print("\nSaving results...")
-            save_results(results, aggregated, args.output_dir)
-
-        print("\n✅ Evaluation completed successfully!")
-
-    except KeyboardInterrupt:
-        print("\n\nEvaluation interrupted by user.")
-    except Exception as e:
-        print(f"\n❌ Error during evaluation: {str(e)}")
-        raise
-
-
-if __name__ == "__main__":
-    main()

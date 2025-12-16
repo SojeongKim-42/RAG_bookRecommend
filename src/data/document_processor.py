@@ -8,7 +8,7 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders.csv_loader import CSVLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from config import Config
+from src.config import Config
 
 
 class DocumentProcessor:
